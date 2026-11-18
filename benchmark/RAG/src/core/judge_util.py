@@ -10,7 +10,9 @@ def llm_grader(
     question: str,
     gold_answer: str or list,
     response: str,
-    dataset_name: str = "Locomo"
+    dataset_name: str = "Locomo",
+    *,
+    strict: bool = False,
 ) -> dict:
     """
     Use an LLM as a judge to score a generated answer against a gold answer.
@@ -117,6 +119,10 @@ Respond ONLY with a JSON object: {{"score": 0 to 4, "reasoning": "string"}}
         content = resp.content if resp and hasattr(resp, "content") else ""
 
         result = json.loads(content)
+        if strict and (
+            type(result.get("score")) is not int or result["score"] not in range(5)
+        ):
+            raise ValueError("Judge must return an integer score from 0 to 4")
         score = int(result.get("score", 0))
         reasoning = result.get("reasoning", "No reasoning provided.")
 
@@ -129,6 +135,8 @@ Respond ONLY with a JSON object: {{"score": 0 to 4, "reasoning": "string"}}
             score = max(0, min(4, score))
 
     except Exception:
+        if strict:
+            raise
         # -------------------------
         # 3) Unified fallback parse
         # -------------------------
