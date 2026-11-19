@@ -10,6 +10,7 @@ ov_storage/
 
 # Evaluation output results
 Output/
+/src/vikingbot-eval-output/
 
 # Python
 __pycache__/
