@@ -16,7 +16,7 @@ import sys
 
 sys.path.append(str(Path(__file__).parent))
 
-from base import BaseAdapter, StandardDoc, StandardSample, StandardQA
+from .base import BaseAdapter, StandardDoc, StandardSample, StandardQA, StandardEvidence
 
 CATEGORY_INSTRUCTIONS = {
     "domain-relevant": """Answer the financial question based on the document.
@@ -114,12 +114,21 @@ class FinanceBenchAdapter(BaseAdapter):
                     question=item["question"],
                     gold_answers=[item["answer"]],
                     evidence=evidence_texts,
+                    gold_evidence=[
+                        StandardEvidence(
+                            f"evidence_{index}", doc_name, ev["evidence_text"],
+                            annotation_id=f"evidence_{index}",
+                        )
+                        for index, ev in enumerate(item.get("evidence") or [], 1)
+                        if ev.get("evidence_text")
+                    ],
                     category=item.get("question_type"),
                     metadata={
                         "financebench_id": item.get("financebench_id"),
                         "question_reasoning": item.get("question_reasoning"),
                         "justification": item.get("justification", ""),
                         "company": item.get("company"),
+                        "evidence_annotations": item.get("evidence") or [],
                     }
                 ))
 

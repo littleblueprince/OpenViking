@@ -25,6 +25,7 @@ class ToolExecutionResult:
     effective_params: dict[str, Any]
     skill_uris: tuple[str, ...] = ()
     preserve_complete_result: bool = False
+    source_observations: tuple[dict[str, Any], ...] = ()
 
 
 class ToolRegistry:
@@ -288,6 +289,7 @@ class ToolRegistry:
                 except Exception:
                     pass
 
+        original_result_text = str(result)
         hook_result = await hook_manager.execute_hooks(
             context=HookContext(
                 event_type="tool.post_call",
@@ -310,6 +312,10 @@ class ToolRegistry:
             effective_params=effective_params,
             skill_uris=skill_uris,
             preserve_complete_result=getattr(tool, "preserve_complete_result", False),
+            source_observations=(
+                tuple(tool_context.source_observations)
+                if str(result) == original_result_text else ()
+            ),
         )
 
     async def execute(

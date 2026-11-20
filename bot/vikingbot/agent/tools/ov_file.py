@@ -24,6 +24,11 @@ from openviking.utils.media_limits import (
     MAX_INLINE_TOOL_RESULT_MEDIA_BYTES,
 )
 from vikingbot.agent.tools.base import MultimodalToolResult, Tool, ToolContext
+from vikingbot.agent.tools.source_capture import (
+    append_source_fragment,
+    capture_json_sources,
+    source_observation,
+)
 from vikingbot.openviking_mount.ov_server import VikingClient
 from vikingbot.utils.image_format import sniff_image_format
 
@@ -275,6 +280,10 @@ class VikingListTool(OVFileTool):
                     "isDir": entry["isDir"],
                 }
                 result.append(str(item))
+                tool_context.source_observations.append(source_observation(
+                    item["uri"], content_kind="candidate", is_directory=item["isDir"],
+                    limit_reached=len(entries) >= node_limit,
+                ))
             return "\n".join(result)
         except Exception as e:
             logger.exception(f"Error processing message: {e}")
@@ -606,7 +615,15 @@ class VikingSearchTool(OVFileTool):
             if total == 0:
                 return f"No results found for query: {query}"
 
-            return self._format_search_items_json(grouped_items, min_score=min_score)
+            rendered = self._format_search_items_json(grouped_items, min_score=min_score)
+            items = [
+                item for group in ("memory", "resource", "skill")
+                for item in grouped_items.get(group, [])
+            ]
+            tool_context.source_observations.extend(
+                capture_json_sources(rendered, items, field="abstract", kind="abstract")
+            )
+            return rendered
         except Exception as e:
             return f"Error searching Viking: {str(e)}"
         finally:
@@ -877,9 +894,13 @@ class VikingGrepTool(OVFileTool):
             for match_uri, uri_matches in merged_results.items():
                 uri_matches.sort(key=lambda x: int(x[0]) if str(x[0]).isdigit() else 0)
                 result_lines.append(f"\n📄 {match_uri}")
+                source = source_observation(
+                    match_uri, limit_reached=bool(capped_scopes or capped_candidate_scopes)
+                )
                 for line, content in uri_matches:
                     result_lines.append(f"   Line {line}:")
-                    result_lines.append(f"   {content}")
+                    append_source_fragment(result_lines, source, content, prefix="   ")
+                tool_context.source_observations.append(source)
 
             if capped_scopes:
                 result_lines.append(
@@ -962,6 +983,9 @@ class VikingGlobTool(OVFileTool):
                 if isinstance(match_uri, dict):
                     match_uri = match_uri.get("uri", str(match_uri))
                 result_lines.append(f"📄 {match_uri}")
+                tool_context.source_observations.append(
+                    source_observation(match_uri, content_kind="candidate")
+                )
 
             return "\n".join(result_lines)
         except Exception as e:
@@ -1412,7 +1436,12 @@ class VikingMultiReadTool(OVFileTool):
                     if not item["success"]:
                         return f"Error: {item['uri']}: {item['content']}"
             if with_revision:
-                return json.dumps(results, ensure_ascii=False)
+                rendered = json.dumps(results, ensure_ascii=False)
+                sources = capture_json_sources(rendered, results, field="content", kind="body")
+                for source in sources:
+                    source["truncated"] = offset > 0 or limit != -1
+                tool_context.source_observations.extend(sources)
+                return rendered
 
             # 构建结果
             range_note = (
@@ -1435,10 +1464,22 @@ class VikingMultiReadTool(OVFileTool):
                 start_marker = f"\n--- START OF {uri}{item_range_note} ---"
                 end_marker = f"--- END OF {uri} ---"
                 result_lines.append(start_marker)
+                source = source_observation(
+                    uri,
+                    content_kind=(
+                        "overview" if result["media_kind"] in {"audio", "video"} else "body"
+                    ),
+                    success=success,
+                    truncated=offset > 0 or limit != -1,
+                )
                 if success:
-                    result_lines.append(content)
+                    if result["media_kind"] == "image":
+                        result_lines.append(content)
+                    else:
+                        append_source_fragment(result_lines, source, content)
                 else:
                     result_lines.append(f"ERROR: {content}")
+                tool_context.source_observations.append(source)
                 result_lines.append(end_marker)
 
                 if has_images:

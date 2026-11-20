@@ -23,10 +23,12 @@ from vikingbot.agent.skills import SkillsLoader
 from vikingbot.agent.tools import register_default_tools
 from vikingbot.agent.tools.base import MultimodalToolResult
 from vikingbot.agent.tools.registry import ToolExecutionResult, ToolRegistry
+from vikingbot.agent.tools.source_capture import delivered_sources
 from vikingbot.bus.events import OutboundEventType, OutboundMessage
 from vikingbot.config.schema import SessionKey
 from vikingbot.sandbox import SandboxManager
 from vikingbot.utils.helpers import cal_str_tokens
+from vikingbot.utils.tracing import get_current_response_id
 
 
 def _is_tool_result_success(result: Any) -> bool:
@@ -294,7 +296,9 @@ class LoopToolMixin:
             tool_execute_duration = (time.perf_counter() - tool_execute_start_time) * 1000
             return idx, tool_call, outcome, tool_execute_duration
 
-        for tool_call in response.tool_calls:
+        sequence_base = len(tools_used)
+        response_id = get_current_response_id()
+        for call_index, tool_call in enumerate(response.tool_calls):
             args_str = json.dumps(tool_call.arguments, ensure_ascii=False)
             logger.info(
                 "[TOOL_CALL]: {}({}) session={} agent={} iteration={} call_id={}",
@@ -311,6 +315,14 @@ class LoopToolMixin:
                         session_key=session_key,
                         content=f"{tool_call.name}({args_str})",
                         event_type=OutboundEventType.TOOL_CALL,
+                        response_id=response_id,
+                        iteration=iteration,
+                        metadata={
+                            "tool_call_id": tool_call.id,
+                            "tool_name": tool_call.name,
+                            "args": tool_call.arguments,
+                            "sequence": sequence_base + call_index + 1,
+                        },
                     )
                 )
 
@@ -387,14 +399,6 @@ class LoopToolMixin:
             args_str = json.dumps(tool_call.arguments, ensure_ascii=False)
             logger.info(f"[RESULT]: {result_text[:200]}")
 
-            if publish_events:
-                await self.bus.publish_outbound(
-                    OutboundMessage(
-                        session_key=session_key,
-                        content=str(model_result),
-                        event_type=OutboundEventType.TOOL_RESULT,
-                    )
-                )
             if isinstance(result, MultimodalToolResult):
                 result_media_bytes = _inline_media_bytes([{"content": result.content}])
                 if not self.provider.should_inline_tool_result_media(self.model):
@@ -426,12 +430,40 @@ class LoopToolMixin:
                         )
                     else:
                         request_media_bytes += result_media_bytes
+            sources = delivered_sources(
+                getattr(outcome, "source_observations", ()), result_text, str(model_result)
+            )
+            result_metadata = {
+                "tool_call_id": tool_call.id,
+                "tool_name": tool_call.name,
+                "args": tool_call.arguments,
+                "resolved_args": outcome.effective_params,
+                "sequence": sequence_base + _idx + 1,
+                "success": _is_tool_result_success(result),
+                "duration_sec": tool_execute_duration / 1000,
+                "sources": sources,
+            }
+            if publish_events:
+                await self.bus.publish_outbound(
+                    OutboundMessage(
+                        session_key=session_key,
+                        content=str(model_result),
+                        event_type=OutboundEventType.TOOL_RESULT,
+                        response_id=response_id,
+                        iteration=iteration,
+                        metadata=result_metadata,
+                    )
+                )
             messages = self.context.add_tool_result(
                 messages, tool_call.id, tool_call.name, model_result
             )
 
             tool_used_dict = {
                 "tool_call_id": tool_call.id,
+                "iteration": iteration,
+                "sequence": sequence_base + _idx + 1,
+                "response_id": response_id,
+                "sources": sources,
                 "tool_name": tool_call.name,
                 "args": args_str,
                 "resolved_args": outcome.effective_params,

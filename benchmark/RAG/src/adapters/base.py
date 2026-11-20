@@ -7,6 +7,7 @@ from pathlib import Path
 sys.path.append(str(Path(__file__).parent.parent))
 
 from core.logger import get_logger
+from core.trace_models import StandardEvidence
 
 
 @dataclass
@@ -17,6 +18,7 @@ class StandardQA:
     evidence: List[str] = field(default_factory=list)
     category: Optional[Union[int, str]] = None
     metadata: Dict[str, Any] = field(default_factory=dict)
+    gold_evidence: List[StandardEvidence] = field(default_factory=list)
 
 
 @dataclass

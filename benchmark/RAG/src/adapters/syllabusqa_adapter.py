@@ -30,7 +30,7 @@ import os
 import csv
 from typing import List, Dict, Any
 
-from .base import BaseAdapter, StandardDoc, StandardSample, StandardQA
+from .base import BaseAdapter, StandardDoc, StandardSample, StandardQA, StandardEvidence
 
 # Rule for when answer cannot be found
 MISSING_RULE = "If no information is available to answer the question, write 'Not mentioned'."
@@ -288,6 +288,22 @@ class SyllabusQAAdapter(BaseAdapter):
         else:
             raise FileNotFoundError(f"Unsupported file format: {self.raw_file_path}")
 
+    @staticmethod
+    def _gold_evidence(qa_item: Dict[str, Any], source_doc_id: str) -> List[StandardEvidence]:
+        evidences = []
+        for prefix, kind in (
+            ("answer_span", "source_span"), ("reasoning_step", "reasoning_annotation")
+        ):
+            for index in range(1, 6):
+                annotation_id = f"{prefix}_{index}"
+                text = qa_item.get(annotation_id)
+                if isinstance(text, str) and text.strip():
+                    evidences.append(StandardEvidence(
+                        annotation_id, source_doc_id, text.strip(),
+                        kind=kind, annotation_id=annotation_id,
+                    ))
+        return evidences
+
     def _load_from_json(self) -> List[StandardSample]:
         """
         Load data from JSON file.
@@ -337,6 +353,7 @@ class SyllabusQAAdapter(BaseAdapter):
                     question=formatted_question,
                     gold_answers=[answer] if answer else ["Not mentioned"],
                     evidence=evidence,
+                    gold_evidence=self._gold_evidence(qa_item, syllabus_name),
                     category=question_type,
                     metadata={
                         "id": qa_id,
@@ -418,6 +435,7 @@ class SyllabusQAAdapter(BaseAdapter):
                     question=formatted_question,
                     gold_answers=[answer] if answer else ["Not mentioned"],
                     evidence=evidence,
+                    gold_evidence=self._gold_evidence(qa_item, syllabus_name),
                     category=question_type,
                     metadata={
                         "id": qa_id,

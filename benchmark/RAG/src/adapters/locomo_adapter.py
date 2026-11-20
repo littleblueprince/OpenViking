@@ -3,7 +3,7 @@ import json
 import os
 from typing import List, Dict, Any
 
-from .base import BaseAdapter, StandardDoc, StandardSample, StandardQA
+from .base import BaseAdapter, StandardDoc, StandardSample, StandardQA, StandardEvidence
 
 
 MISSING_RULE = "If no information is available to answer the question, write 'Not mentioned'."
@@ -98,6 +98,14 @@ class LocomoAdapter(BaseAdapter):
                     question=q["question"],
                     gold_answers=[str(g) for g in golds],
                     evidence=q.get("evidence", []),
+                    gold_evidence=[
+                        StandardEvidence(
+                            evidence_id=f"dialogue_{i}", source_doc_id=str(sample_id),
+                            text=ev, kind="dialogue_id", annotation_id=ev,
+                        )
+                        for i, ev in enumerate(q.get("evidence") or [], 1)
+                        if isinstance(ev, str) and ev.strip()
+                    ],
                     category=q.get("category"),
                     metadata={"original_id": q.get("id")}
                 ))

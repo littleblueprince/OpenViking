@@ -25,7 +25,7 @@ import json
 import os
 from typing import List, Dict, Any
 
-from .base import BaseAdapter, StandardDoc, StandardSample, StandardQA
+from .base import BaseAdapter, StandardDoc, StandardSample, StandardQA, StandardEvidence
 
 # Specific instructions for different answer types
 CATEGORY_INSTRUCTIONS = {
@@ -177,9 +177,10 @@ class QasperAdapter(BaseAdapter):
                 evidence_list = []
                 answer_types = []
                 answer_evidence_pairs = []
+                gold_evidence = []
                 
                 # Iterate through all annotator answers
-                for answer_wrapper in qa_item.get("answers", []):
+                for group_index, answer_wrapper in enumerate(qa_item.get("answers", []), 1):
                     answer_obj = answer_wrapper.get("answer", {})
                     
                     current_answer = None
@@ -212,8 +213,14 @@ class QasperAdapter(BaseAdapter):
                     # Collect evidence text
                     current_evidence = []
                     evidence = answer_obj.get("evidence", [])
-                    for ev in evidence:
+                    for evidence_index, ev in enumerate(evidence, 1):
                         if ev and ev.strip():
+                            annotation_id = f"answer_{group_index}.evidence_{evidence_index}"
+                            gold_evidence.append(StandardEvidence(
+                                annotation_id, paper_id, ev,
+                                annotation_id=annotation_id,
+                                answer_group_id=f"answer_{group_index}",
+                            ))
                             current_evidence.append(ev)
                             if ev not in evidence_list:
                                 evidence_list.append(ev)
@@ -241,6 +248,7 @@ class QasperAdapter(BaseAdapter):
                     question=question,
                     gold_answers=gold_answers,
                     evidence=evidence_list,
+                    gold_evidence=gold_evidence,
                     category=None,
                     metadata={
                         "question_id": question_id,

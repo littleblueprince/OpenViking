@@ -1,7 +1,7 @@
 """Base class for agent tools."""
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from vikingbot.config.schema import SessionKey
@@ -68,6 +68,7 @@ class ToolContext:
     openviking_connection: dict[str, Any] | None = None
     channel_metadata: dict[str, Any] | None = None
     skill_runtime: Any | None = None
+    source_observations: list[dict[str, Any]] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         if self.memory_owner_user_ids is None and self.memory_user_ids is not None:
